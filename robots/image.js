@@ -1,4 +1,5 @@
 const imageDownloader = require('image-downloader')
+const gm = require('gm').subClass({imageMagick: true})
 const google = require('googleapis').google
 const customSearch = google.customsearch('v1')
 const state = require('./state')
@@ -9,9 +10,10 @@ async function robot(){
 
     await fetchImagesOfAllSentences(content)
     await downloadAllImages(content)
-    /* const imagesArray = await fetchGoogleAndReturnImagesLinks('Recife')
-    console.dir(imagesArray, {depth: null})
-    process.exit(0) */
+    await convertAllImages(content)
+    await createAllSentenceImages(content)
+    await createYoutubeThumbnail()
+
     state.save(content)
 
     async function fetchImagesOfAllSentences(content){
@@ -29,7 +31,7 @@ async function robot(){
             cx: googleSearchCredentials.searchEngineId,
             q: query,
             searchType: 'image',
-            num: 2
+            num: 2,
         })
 
         const imagesUrl = response.data.items.map((item) => {
@@ -61,7 +63,7 @@ async function robot(){
             }
         }
     }
-
+    
     async function downloadAndSave(url, fileName){
         return imageDownloader.image({
             url, url,
@@ -69,6 +71,120 @@ async function robot(){
         })
     }
 
-    
+    async function convertAllImages(content){
+        for(let sentenceIndex = 0; sentenceIndex < content.sentences.length; sentenceIndex ++){
+            await convertImage(sentenceIndex)
+        }
+    }
+
+    async function convertImage(sentenceIndex){
+        return new Promise((resolve, reject) => {
+            const inputFile = `./content/${sentenceIndex}-original.png[0]`
+            const outputFile = `./content/${sentenceIndex}-converted-video.png`
+            const width = 1920
+            const height = 1080
+
+            gm()
+                .in(inputFile)
+                .out('(')
+                    .out('-clone')
+                    .out('0')
+                    .out('-background', 'white')
+                    .out('-blur', '0x9')
+                    .out('-resize',`${width}x${height}^`)
+                .out(')')
+                .out('(')
+                    .out('-clone')
+                    .out('0')
+                    .out('-background', 'white')
+                    .out('-resize',`${width}x${height}`)
+                .out(')')
+                .out('-delete','0')
+                .out('-gravity','center')
+                .out('-compose','over')
+                .out('-composite')
+                .out('-extent', `${width}x${height}`)
+                .write(outputFile, (error) => {
+                    if(error){
+                        return reject(error)
+                    }
+                    console.log(`> Image converted: ${inputFile}`)
+                    resolve()
+                })
+
+        })
+    }    
+
+    async function createAllSentenceImages(content){
+        for(let sentenceIndex = 0; sentenceIndex < content.sentences.length; sentenceIndex++){
+            await createAllSentenceImage(sentenceIndex, content.sentences[sentenceIndex].text)
+        }
+    }
+
+    async function createAllSentenceImage(sentenceIndex, sentenceText){
+        return new Promise((resolve, reject) => {
+            const outputFile = `./content/${sentenceIndex}-sentence.png`
+
+            const templateSettings = {
+                0: {
+                    size: '1920x1080',
+                    gravity: 'center'
+                },
+                1: {
+                    size: '1920x1080',
+                    gravity: 'center'
+                },
+                2: {
+                    size: '1920x1080',
+                    gravity: 'west'
+                },
+                3: {
+                    size: '1920x1080',
+                    gravity: 'center'
+                },
+                4: {
+                    size: '1920x1080',
+                    gravity: 'center'
+                },
+                5: {
+                    size: '1920x1080',
+                    gravity: 'west'
+                },
+                6: {
+                    size: '1920x1080',
+                    gravity: 'center'
+                },
+            }
+
+            gm()
+                .out('-size', templateSettings[sentenceIndex].size)
+                .out('-gravity', templateSettings[sentenceIndex].gravity)
+                .out('-background', 'transparent')
+                .out('-fill','white')
+                .out('-kerning','-1')
+                .out(`caption:${sentenceText}`)
+                .write(outputFile, (error) => {
+                    if(error){
+                        return reject(error)
+                    }
+                    console.log(`> Sentence created: ${outputFile}`)
+                    resolve()
+                })
+        })
+    }
+
+    async function createYoutubeThumbnail(){
+        return new Promise((resolve, reject) => {
+            gm()
+                .in('./content/0-converted-video.png')
+                .write('./content/youtube-thumbnail.jpg', (error) => {
+                    if(error){
+                        return reject(error)
+                    }
+                    console.log('> Creating Youtube thumbnail')
+                    resolve()
+                })
+        })
+    }
 }
 module.exports = robot
